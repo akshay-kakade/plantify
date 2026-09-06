@@ -37,7 +37,7 @@ _potato_model: Any | None = None
 
 app = FastAPI(title="Verdant Plant Health API", version="1.0.0")
 cors_origins = [
-    origin.strip()
+    origin.strip().rstrip("/")
     for origin in os.getenv(
         "CORS_ORIGINS",
         "http://localhost:3000,http://127.0.0.1:3000",
@@ -47,6 +47,9 @@ cors_origins = [
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
+    # The API is public and does not use cookies or browser credentials.
+    # Allow HTTPS-hosted frontends, including Vercel custom domains.
+    allow_origin_regex=r"https://.*",
     allow_credentials=True,
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
@@ -89,7 +92,7 @@ def load_potato_model() -> Any:
 
     import tensorflow as tf
 
-    _potato_model = tf.keras.models.load_model(POTATO_MODEL_PATH)
+    _potato_model = tf.keras.models.load_model(POTATO_MODEL_PATH, compile=False)
     return _potato_model
 
 
@@ -121,8 +124,12 @@ def predict_tomato(image: Image.Image) -> dict[str, str]:
 
 def predict_potato(image: Image.Image) -> dict[str, str]:
     model = load_potato_model()
-    image_array = np.expand_dims(np.array(image), 0)
+    image_array = np.expand_dims(np.asarray(image, dtype=np.float32), 0)
     predictions = model.predict(image_array, verbose=0)[0]
+    if predictions.shape[0] != len(POTATO_CLASSES):
+        raise RuntimeError(
+            f"Potato model returned {predictions.shape[0]} classes; expected {len(POTATO_CLASSES)}."
+        )
     predicted_index = int(np.argmax(predictions))
     return {
         "predicted_class": POTATO_CLASSES[predicted_index],
